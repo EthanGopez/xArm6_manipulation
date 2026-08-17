@@ -1,0 +1,22 @@
+# ROS 2 / colcon generated files
+xarm_ws/build/
+xarm_ws/install/
+xarm_ws/log/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
