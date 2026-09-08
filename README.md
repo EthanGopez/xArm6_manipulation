@@ -33,6 +33,8 @@ source install/setup.bash
 Launch the verified fake xArm-6 planner:
 
 ```bash
+# Required when launching from a normal devcontainer terminal.
+bash /workspace/.devcontainer/start-vnc.sh
 export DISPLAY=:1
 ros2 launch xarm_planner xarm6_planner_fake.launch.py
 ```

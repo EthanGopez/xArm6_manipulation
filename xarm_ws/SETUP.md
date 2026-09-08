@@ -1,119 +1,90 @@
 # xArm ROS 2 Humble learning workspace
 
-Simulation-only setup for ECLAIR HAND of God. This workspace targets an
-**xArm-6**. Do not supply a robot IP address or use a `realmove` launch file.
+This is a throwaway, simulation-first workspace for an expected UFactory xArm-6.
+It does not connect to a robot. Lite6 and `realmove` launch files are intentionally
+not used.
 
-For the complete reproducible remote-desktop and fake-planner handoff, see
-[`REMOTE_RVIZ_HANDOFF.md`](REMOTE_RVIZ_HANDOFF.md).
-
-## Environment recorded
+## Environment verified
 
 - Ubuntu 22.04.5 LTS
-- ROS 2 Humble (`ros-humble-desktop` 0.10.0)
-- Upstream: `https://github.com/xarm-Developer/xarm_ros2`
-- Branch/revision: `humble` / `62936f7`
-- Submodule: `xarm_sdk/cxx` at `v1.18.1`
-- Useful resolved packages: MoveIt 2.5.9, MoveIt Servo 2.5.9, xacro 2.1.1
+- ROS 2 Humble (`/opt/ros/humble`)
+- `rosdep` 0.26.0; `python3-colcon-common-extensions` 0.3.0
+- UFactory `xarm_ros2`, branch `humble`, commit `62936f7`
+- Recursive submodule `xarm_sdk/cxx`, tag `v1.18.1`
+- MoveIt 2.5.9; ros2_control/controller-manager 2.54.0; xacro 2.1.1
 
-## Reproduce
+## Recreate
 
 ```bash
-source /opt/ros/humble/setup.bash
 mkdir -p ~/xarm_ws/src
+cd ~/xarm_ws/src
 git clone --branch humble --recurse-submodules \
-  https://github.com/xarm-Developer/xarm_ros2.git ~/xarm_ws/src/xarm_ros2
-cd ~/xarm_ws
+  https://github.com/xarm-Developer/xarm_ros2.git xarm_ros2
+cd ..
+source /opt/ros/humble/setup.bash
 rosdep update
 rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
-colcon build --symlink-install
+colcon build --symlink-install --parallel-workers 2
+source install/setup.bash
 ```
 
-If the base image lacks the ROS APT source, install the official
-`ros2-apt-source` configuration package first, refresh APT, and then run the
-`rosdep` command. `Unable to locate package ros-humble-*` means that ROS APT
-source is absent or its package index has not been refreshed; it is not an
-xArm build error.
-
-## xArm-6 fake MoveIt/RViz verification
-
-Open a terminal in this directory and run:
+If APT says ROS packages are unavailable, the official ROS 2 APT source must be
+configured (this container already had the `ros2-apt-source` package):
 
 ```bash
-cd /workspace/xarm_ws
+sudo apt update
+sudo apt install ros2-apt-source
+sudo apt update
+```
+
+Do not force-remove APT locks; wait for the active transaction to finish. A
+container may also need `sudo rosdep fix-permissions` before a non-root
+`rosdep update`.
+
+## Verified fake xArm-6 launch
+
+TigerVNC was running on display `:1`. In the VNC terminal:
+
+```bash
+export DISPLAY=:1
+export XAUTHORITY=/root/.Xauthority   # use your own Xauthority path as needed
 source /opt/ros/humble/setup.bash
-source install/setup.bash
+source /workspace/xarm_ws/install/setup.bash
 ros2 launch xarm_moveit_config xarm6_moveit_fake.launch.py
 ```
 
-This is the verified installed launch-file path. It uses fake hardware: no
-robot IP or physical arm is involved. In RViz, set the fixed frame to `world`
-if needed, confirm the displayed model is an xArm-6, and use the Motion
-Planning panel to plan a small pose change. Planning/execution should update
-the fake joint-state model only.
+Verified: RViz initialized on TigerVNC, `UFRobotFakeSystemHardware` activated,
+`joint_state_broadcaster` and `xarm6_traj_controller` configured, and MoveIt
+reported “You can start planning now!”. The realtime FIFO warning is expected in
+a container. The “no 3D sensor plugin” warning is expected for this sensor-free
+fake launch.
 
-## Graph inspection exercise
+## Graph exercise (while launch is running)
 
-Leave the fake launch running in terminal A. In terminal B, source the same
-two setup files, then run:
+In a second sourced terminal, run:
 
 ```bash
 ros2 node list
-ros2 topic list -t
-ros2 topic echo --once /joint_states
-ros2 param get /move_group robot_description_semantic
-ros2 run tf2_ros tf2_echo world link6
+ros2 topic list | grep -E 'joint|tf|planning|trajectory|controller'
+ros2 topic echo /joint_states --once
+ros2 topic hz /joint_states
+ros2 topic echo /tf_static --once
+ros2 param list /controller_manager
+ros2 param get /controller_manager update_rate
 ```
 
-Identify the publisher of `/joint_states` with:
+Expected observations include `/move_group`, `/rviz2`, `/controller_manager`,
+`/robot_state_publisher`, `/joint_states` containing six xArm joints, and an
+update rate of `150`. Stop `topic hz` with Ctrl-C. This exercise is intentionally
+the stopping point before Gazebo.
+
+## Next step (do not run automatically)
+
+After the fake-RViz exercise, the xArm-6 Gazebo launch to investigate is:
 
 ```bash
-ros2 topic info /joint_states -v
+ros2 launch xarm_moveit_config xarm6_moveit_gazebo.launch.py
 ```
 
-Then move a joint target in RViz and repeat `ros2 topic echo --once
-/joint_states`. Explain which joint values changed, and compare `world` to
-`link6` with the TF command. This connects the MoveIt interface, joint-state
-stream, and kinematic transform tree without touching hardware.
-
-## Troubleshooting
-
-- `Package 'xarm_moveit_config' not found`: source Humble, then this
-  workspace's `install/setup.bash`, in that order.
-- RViz cannot display in OrbStack: keep using the graphical environment that
-  already lets `rqt` run; the ROS launch itself is otherwise headless-safe.
-- `rosdep` warns about root: use a normal user and initialize/update rosdep
-  under that user when possible; the warning does not indicate an xArm error.
-- APT lock errors: another package transaction is running. Wait for it; do
-  not delete lock files.
-
-### TigerVNC desktop for RViz
-
-The devcontainer starts an XFCE desktop on display `:1` after each container
-start. Both services listen only on the container loopback interface, so use
-VS Code's **Ports** panel rather than exposing them directly on the network.
-
-- Preferred: forward port `5901`, then connect a native TigerVNC Viewer to
-  `localhost:5901`. This avoids browser rendering overhead.
-- Fallback: open the forwarded port `6080` and visit
-  `/vnc.html?autoconnect=true&resize=remote`.
-
-The initial configuration intentionally uses no VNC password because neither
-port is reachable outside the container without VS Code port forwarding. Do
-not publish either port on a shared network without changing this to VNC
-password authentication.
-
-Inside the desktop, open a terminal and run the fake MoveIt command above.
-For an RViz-only test, set `DISPLAY=:1` in a normal devcontainer terminal
-before launching RViz. The current container forces software OpenGL, so VNC
-can reduce transport latency but cannot make RViz rendering GPU-accelerated.
-
-## Next command (not run in this setup)
-
-After completing the fake-RViz exercise, the expected Gazebo direction is:
-
-```bash
-ros2 launch xarm_gazebo xarm6_gazebo.launch.py
-```
-
-Inspect `ros2 launch xarm_gazebo xarm6_gazebo.launch.py --show-args` first
-and keep it simulation-only.
+That is a separate simulation milestone; it still does not use physical robot
+hardware or an IP address.
